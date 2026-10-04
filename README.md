@@ -76,6 +76,15 @@ Get a key at [app.supermemory.ai](https://app.supermemory.ai).
 }
 ```
 
+| Option | Description |
+| --- | --- |
+| `baseUrl` | Supermemory API URL for every project, e.g. a self-hosted server |
+| `mcpUrl` | MCP endpoint to use when `baseUrl` is not the hosted API |
+
+Muse clears the environment for hooks and the MCP proxy, so set a self-hosted URL here rather than in your shell. The order is `SUPERMEMORY_API_URL`, then the project's `baseUrl` (a committed project config overrides this file), then this one, then `https://api.supermemory.ai`.
+
+With a self-hosted `baseUrl`, the MCP proxy stays off unless `mcpUrl` (or `SUPERMEMORY_MCP_URL`) names an MCP endpoint, and a missing key does not open the hosted browser login: write the server's key to `~/.supermemory-muse/credentials.json`. A key in `~/.supermemory-claude/credentials.json` is also used, so it must belong to the same server.
+
 **Project** — `.muse/supermemory.json`
 
 ```json

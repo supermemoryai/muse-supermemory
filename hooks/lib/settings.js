@@ -12,12 +12,16 @@ const DEFAULT_SETTINGS = {
   recallDirective: null,
 };
 
+function readSettingsText(file) {
+  return fs.readFileSync(file, 'utf-8').replace(/^\uFEFF/, '');
+}
+
 function loadSettings() {
   const settings = { ...DEFAULT_SETTINGS };
   const file = settingsFile();
   try {
     if (fs.existsSync(file)) {
-      Object.assign(settings, JSON.parse(fs.readFileSync(file, 'utf-8')));
+      Object.assign(settings, JSON.parse(readSettingsText(file)));
     }
   } catch (err) {
     console.error(`Settings: Failed to load ${file}: ${err.message}`);
@@ -60,10 +64,29 @@ function normalizeBaseUrl(baseUrl) {
   }
 }
 
+// A settings.json that sets baseUrl but does not parse must not fall back to
+// the hosted API, or a self-hosted key and transcripts would be sent there.
+function globalBaseUrl() {
+  const file = settingsFile();
+  if (!fs.existsSync(file)) return null;
+  const text = readSettingsText(file);
+  try {
+    return JSON.parse(text)?.baseUrl || null;
+  } catch (err) {
+    if (text.includes('baseUrl')) {
+      throw new Error(`Invalid ${file}: ${err.message}`);
+    }
+    return null;
+  }
+}
+
 function getBaseUrl(cwd, projectConfig) {
   projectConfig = projectConfig || loadProjectConfig(cwd || process.cwd());
   const configured =
-    process.env.SUPERMEMORY_API_URL || projectConfig?.baseUrl || BASE_URL;
+    process.env.SUPERMEMORY_API_URL ||
+    projectConfig?.baseUrl ||
+    globalBaseUrl() ||
+    BASE_URL;
   const normalized = normalizeBaseUrl(configured);
   if (!normalized) {
     throw new Error('Invalid baseUrl: expected an absolute http(s) URL');
@@ -89,7 +112,12 @@ function getRecallConfig(cwd) {
   };
 }
 
+function isCustomBaseUrl(baseUrl) {
+  return new URL(baseUrl).hostname !== new URL(BASE_URL).hostname;
+}
+
 module.exports = {
+  isCustomBaseUrl,
   settingsDir,
   settingsFile,
   DEFAULT_SETTINGS,

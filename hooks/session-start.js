@@ -1,7 +1,13 @@
 const { getProfile } = require('./lib/api');
 const { getContainerTag, getProjectName } = require('./lib/container-tag');
 const { loadProjectConfig } = require('./lib/project-config');
-const { loadSettings, getApiKey, getBaseUrl, debugLog } = require('./lib/settings');
+const {
+  loadSettings,
+  getApiKey,
+  getBaseUrl,
+  isCustomBaseUrl,
+  debugLog,
+} = require('./lib/settings');
 const { BRAND, bold, gray } = require('./lib/colors');
 const { readStdin, writeOutput } = require('./lib/stdin');
 const { startAuthFlow, AUTH_BASE_URL } = require('./lib/auth');
@@ -71,10 +77,22 @@ async function main() {
 
     debugLog(settings, 'SessionStart', { cwd, projectName, containerTag });
 
+    const baseUrl = getBaseUrl(cwd, projectConfig);
+
     let apiKey;
     try {
       apiKey = getApiKey(cwd, projectConfig);
     } catch {
+      if (isCustomBaseUrl(baseUrl)) {
+        // The hosted browser login cannot issue a key for a self-hosted server.
+        output(
+          `<supermemory-status>
+No API key for ${baseUrl}. Write {"apiKey":"..."} to ~/.supermemory-muse/credentials.json.
+</supermemory-status>`,
+          [],
+        );
+        return;
+      }
       try {
         apiKey = await startAuthFlow();
       } catch (authErr) {
@@ -89,8 +107,6 @@ Or write an API key to ~/.supermemory-muse/credentials.json as {"apiKey":"sm_...
         return;
       }
     }
-
-    const baseUrl = getBaseUrl(cwd, projectConfig);
 
     let profileResult = null;
     let apiError = null;

@@ -1,10 +1,33 @@
 #!/usr/bin/env node
 const readline = require('node:readline');
 const { getContainerTag } = require('../hooks/lib/container-tag');
-const { getApiKey } = require('../hooks/lib/settings');
+const {
+  getApiKey,
+  getBaseUrl,
+  isCustomBaseUrl,
+  loadSettings,
+} = require('../hooks/lib/settings');
 
-const MCP_URL =
-  process.env.SUPERMEMORY_MCP_URL || 'https://mcp.supermemory.ai/mcp';
+const DEFAULT_MCP_URL = 'https://mcp.supermemory.ai/mcp';
+
+// A self-hosted baseUrl must not send its key to the hosted MCP server.
+function resolveMcpUrl(cwd) {
+  const explicit = process.env.SUPERMEMORY_MCP_URL || loadSettings().mcpUrl;
+  if (explicit) return { url: explicit };
+  try {
+    if (isCustomBaseUrl(getBaseUrl(cwd))) {
+      return {
+        url: null,
+        reason:
+          'baseUrl points at a self-hosted server. Set mcpUrl in ~/.supermemory-muse/settings.json to enable it.',
+      };
+    }
+  } catch (err) {
+    return { url: null, reason: err.message };
+  }
+  return { url: DEFAULT_MCP_URL };
+}
+
 const REQUEST_TIMEOUT_MS = 30000;
 
 const REPO_SCOPED_TOOLS = new Set([
@@ -66,7 +89,7 @@ function emitSseData(text) {
   }
 }
 
-async function forward(message, apiKey) {
+async function forward(message, apiKey, mcpUrl) {
   const headers = {
     Authorization: `Bearer ${apiKey}`,
     'Content-Type': 'application/json',
@@ -74,7 +97,7 @@ async function forward(message, apiKey) {
   };
   if (sessionId) headers['Mcp-Session-Id'] = sessionId;
 
-  const response = await fetch(MCP_URL, {
+  const response = await fetch(mcpUrl, {
     method: 'POST',
     headers,
     body: JSON.stringify(message),
@@ -108,6 +131,7 @@ async function forward(message, apiKey) {
 
 async function main() {
   const cwd = process.cwd();
+  const mcp = resolveMcpUrl(cwd);
   let apiKey = null;
   let keyError = null;
   let repoContainerTag = null;
@@ -135,6 +159,10 @@ async function main() {
     }
 
     queue = queue.then(async () => {
+      if (!mcp.url) {
+        sendError(message.id, -32002, `Supermemory MCP is off: ${mcp.reason}`);
+        return;
+      }
       if (keyError) {
         sendError(
           message.id,
@@ -145,7 +173,7 @@ async function main() {
       }
       try {
         injectRepoContainerTag(message, repoContainerTag);
-        await forward(message, apiKey);
+        await forward(message, apiKey, mcp.url);
       } catch (err) {
         sendError(message.id, -32000, `Supermemory MCP proxy error: ${err.message}`);
       }
