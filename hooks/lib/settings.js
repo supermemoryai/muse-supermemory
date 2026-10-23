@@ -1,5 +1,5 @@
 const fs = require('node:fs');
-const { loadCredentials } = require('./auth');
+const { loadCredentials, getAccessToken, getOAuthConfig } = require('./auth');
 const { loadProjectConfig } = require('./project-config');
 const { settingsDir, settingsFile } = require('./paths');
 
@@ -35,7 +35,9 @@ function envApiKey() {
   );
 }
 
-function getApiKey(cwd, projectConfig) {
+// Resolve the bearer right before each request: OAuth access tokens expire
+// and rotate during a session. Configured API keys keep precedence.
+async function getAuthToken(cwd, projectConfig, timeoutMs) {
   const fromEnv = envApiKey();
   if (fromEnv) return fromEnv;
 
@@ -43,9 +45,18 @@ function getApiKey(cwd, projectConfig) {
   if (projectConfig?.apiKey) return projectConfig.apiKey;
 
   const credentials = loadCredentials();
+  if (credentials?.type === 'oauth') {
+    return getAccessToken(
+      getOAuthConfig(
+        getBaseUrl(cwd, projectConfig),
+        getMcpUrl(cwd, projectConfig),
+      ),
+      timeoutMs,
+    );
+  }
   if (credentials?.apiKey) return credentials.apiKey;
 
-  throw new Error('NO_API_KEY');
+  throw Object.assign(new Error('AUTH_REQUIRED'), { code: 'AUTH_REQUIRED' });
 }
 
 function normalizeBaseUrl(baseUrl) {
@@ -71,6 +82,23 @@ function getBaseUrl(cwd, projectConfig) {
   return normalized;
 }
 
+function getMcpUrl(cwd, projectConfig) {
+  if (process.env.SUPERMEMORY_MCP_URL) {
+    const configured = normalizeBaseUrl(process.env.SUPERMEMORY_MCP_URL);
+    if (!configured) throw new Error('Invalid SUPERMEMORY_MCP_URL');
+    return configured;
+  }
+  const api = new URL(getBaseUrl(cwd, projectConfig));
+  if (api.hostname.startsWith('api.')) {
+    api.hostname = api.hostname.replace(/^api\./, 'mcp.');
+    api.pathname = '/mcp';
+    api.search = '';
+    api.hash = '';
+    return api.toString();
+  }
+  throw new Error('Set SUPERMEMORY_MCP_URL for a custom Supermemory backend.');
+}
+
 function debugLog(settings, message, data) {
   if (!settings.debug) return;
   const timestamp = new Date().toISOString();
@@ -94,8 +122,9 @@ module.exports = {
   settingsFile,
   DEFAULT_SETTINGS,
   loadSettings,
-  getApiKey,
+  getAuthToken,
   getBaseUrl,
+  getMcpUrl,
   debugLog,
   getRecallConfig,
 };
