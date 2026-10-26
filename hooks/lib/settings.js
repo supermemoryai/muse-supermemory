@@ -35,8 +35,7 @@ function envApiKey() {
   );
 }
 
-// Resolve the bearer right before each request: OAuth access tokens expire
-// and rotate during a session. Configured API keys keep precedence.
+// Resolve the bearer per request: OAuth access tokens rotate during a session.
 async function getAuthToken(cwd, projectConfig, timeoutMs) {
   const fromEnv = envApiKey();
   if (fromEnv) return fromEnv;

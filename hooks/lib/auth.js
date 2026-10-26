@@ -92,9 +92,8 @@ function readJson(file) {
   }
 }
 
-// Muse's own file may hold OAuth tokens or a legacy API key. The Claude Code
-// plugin's file is only a fallback for a legacy API key: its OAuth tokens
-// belong to a different client and refresh lock, so they are never used here.
+// The Claude Code plugin's file is only a legacy API key fallback: its OAuth
+// tokens belong to a different client and refresh lock, so never use them.
 function loadCredentials() {
   const own = readJson(credentialsFile());
   if (own?.type === 'oauth' || own?.apiKey) return own;
@@ -128,9 +127,8 @@ function saveCredentials(credentials) {
   });
 }
 
-// Hooks and the MCP proxy are separate processes. Serialize refresh token
-// rotation and re-read credentials under the lock before spending a
-// single-use token.
+// Hooks and the MCP proxy are separate processes. Re-read credentials under
+// the lock before spending a single-use refresh token.
 function recoverAbandonedLock() {
   const lockFile = authLockFile();
   let recovery;
@@ -380,10 +378,8 @@ function ownOAuthCredentials(config) {
     : null;
 }
 
-// Rotates the refresh token. The request always runs to completion and saves
-// the replacement, whatever the caller's deadline: aborting it mid-flight would
-// leave the server holding a rotated refresh token we never stored, and the
-// next refresh would fail with invalid_grant and sign the user out.
+// Never abort a refresh mid-flight: the server would rotate a refresh token we
+// never stored, and the next refresh would fail with invalid_grant.
 let pendingRefresh = null;
 
 function refreshCredentials(config) {
@@ -627,8 +623,7 @@ module.exports = {
   openUrl,
 };
 
-// Explicit login migrates a saved API key to OAuth. Logout revokes this
-// installation's refresh token. Status never prints credentials.
+// Status must never print credentials.
 if (require.main === module) {
   (async () => {
     const { getBaseUrl, getMcpUrl } = require('./settings');
