@@ -1,10 +1,22 @@
 const { getProfile } = require('./lib/api');
 const { getContainerTag, getProjectName } = require('./lib/container-tag');
 const { loadProjectConfig } = require('./lib/project-config');
-const { loadSettings, getApiKey, getBaseUrl, debugLog } = require('./lib/settings');
+const {
+  loadSettings,
+  getAuthToken,
+  getBaseUrl,
+  getMcpUrl,
+  debugLog,
+} = require('./lib/settings');
 const { BRAND, bold, gray } = require('./lib/colors');
 const { readStdin, writeOutput } = require('./lib/stdin');
-const { startAuthFlow, AUTH_BASE_URL } = require('./lib/auth');
+const {
+  LOGIN_COMMAND,
+  credentialsFile,
+  getOAuthConfig,
+  settleAuth,
+  startAuthFlow,
+} = require('./lib/auth');
 const { getUserFriendlyError } = require('./lib/error-helpers');
 const { lastSessionFile } = require('./lib/last-session');
 const fs = require('node:fs');
@@ -71,18 +83,26 @@ async function main() {
 
     debugLog(settings, 'SessionStart', { cwd, projectName, containerTag });
 
+    const authStartedAt = Date.now();
     let apiKey;
     try {
-      apiKey = getApiKey(cwd, projectConfig);
-    } catch {
+      apiKey = await getAuthToken(cwd, projectConfig);
+    } catch (error) {
+      if (error.code !== 'AUTH_REQUIRED') throw error;
       try {
-        apiKey = await startAuthFlow();
+        apiKey = await startAuthFlow(
+          getOAuthConfig(
+            getBaseUrl(cwd, projectConfig),
+            getMcpUrl(cwd, projectConfig),
+          ),
+          { timeoutMs: Math.max(1, 25000 - (Date.now() - authStartedAt)) },
+        );
       } catch (authErr) {
         output(
           `<supermemory-status>
-${authErr.message === 'AUTH_TIMEOUT' ? 'Authentication timed out. Please complete login in the browser window.' : 'Authentication failed.'}
-If the browser did not open, visit: ${AUTH_BASE_URL}
-Or write an API key to ~/.supermemory-muse/credentials.json as {"apiKey":"sm_..."}.
+${authErr.message === 'AUTH_TIMEOUT' ? 'Authentication timed out. Start a new session to retry login.' : 'Authentication failed. Start a new session to retry login.'}
+For an explicit login, run: ${LOGIN_COMMAND}
+Or write an API key to ${credentialsFile()} as {"apiKey":"sm_..."}.
 </supermemory-status>`,
           [],
         );
@@ -142,7 +162,8 @@ Session will continue without memory context.
   }
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
   console.error(`Supermemory fatal: ${err.message}`);
+  await settleAuth();
   process.exit(1);
 });

@@ -8,7 +8,7 @@ const { getUserFriendlyError } = require('./lib/error-helpers');
 const { loadProjectConfig } = require('./lib/project-config');
 const {
   loadSettings,
-  getApiKey,
+  getAuthToken,
   getBaseUrl,
   debugLog,
   getRecallConfig,
@@ -117,9 +117,10 @@ async function main() {
     }
 
     const projectConfig = loadProjectConfig(cwd);
+    const requestStarted = Date.now();
     let apiKey;
     try {
-      apiKey = getApiKey(cwd, projectConfig);
+      apiKey = await getAuthToken(cwd, projectConfig, 1000);
     } catch {
       writeOutput({ continue: true, suppressOutput: true });
       return;
@@ -131,7 +132,9 @@ async function main() {
       apiKey,
       containerTag,
       prompt.slice(0, MAX_QUERY_LENGTH),
-      { timeoutMs: SEARCH_TIMEOUT_MS },
+      {
+        timeoutMs: Math.max(1, SEARCH_TIMEOUT_MS - (Date.now() - requestStarted)),
+      },
     );
 
     const results = (response?.searchResults?.results || [])

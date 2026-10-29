@@ -5,7 +5,8 @@ const {
   getProjectName,
 } = require('./lib/container-tag');
 const { loadProjectConfig } = require('./lib/project-config');
-const { loadSettings, getApiKey, getBaseUrl, debugLog } = require('./lib/settings');
+const { loadSettings, getAuthToken, getBaseUrl, debugLog } = require('./lib/settings');
+const { settleAuth } = require('./lib/auth');
 const { readStdin, writeOutput } = require('./lib/stdin');
 const {
   formatNewEntries,
@@ -32,7 +33,7 @@ async function main() {
 
     let apiKey;
     try {
-      apiKey = getApiKey(cwd, projectConfig);
+      apiKey = await getAuthToken(cwd, projectConfig);
     } catch {
       writeOutput({ continue: true });
       return;
@@ -84,7 +85,8 @@ async function main() {
   }
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
   console.error(`Supermemory fatal: ${err.message}`);
+  await settleAuth();
   process.exit(1);
 });

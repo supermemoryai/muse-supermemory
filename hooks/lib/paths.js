@@ -16,6 +16,8 @@ module.exports = {
   settingsDir,
   settingsFile: () => path.join(settingsDir(), 'settings.json'),
   credentialsFile: () => path.join(settingsDir(), 'credentials.json'),
+  oauthClientFile: () => path.join(settingsDir(), 'oauth-client.json'),
+  authLockFile: () => path.join(settingsDir(), 'auth.lock'),
   lastSessionFile: () => path.join(settingsDir(), 'last-session.json'),
   claudeCredentialsFile,
 };

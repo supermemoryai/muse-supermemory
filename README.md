@@ -45,11 +45,21 @@ Muse runs hooks with a cleared environment, so the API key is read from a file, 
 
 ## Auth
 
-The first session opens a browser login and writes `~/.supermemory-muse/credentials.json`.
+The first session opens a browser login (OAuth with PKCE) and writes `~/.supermemory-muse/credentials.json`. Tokens refresh automatically.
 
-If you already logged in through the Claude Code plugin, that key is reused from `~/.supermemory-claude/credentials.json`.
+Log in, out, or check status explicitly from the plugin directory:
 
-Or write the file yourself:
+```bash
+node hooks/lib/auth.js login    # also migrates a saved API key to OAuth
+node hooks/lib/auth.js logout   # revokes the token, removes Muse credentials only
+node hooks/lib/auth.js status
+```
+
+For a custom backend set `baseUrl` (project config) or `SUPERMEMORY_API_URL`; when that host does not start with `api.`, also set `SUPERMEMORY_MCP_URL`.
+
+A legacy API key saved by the Claude Code plugin in `~/.supermemory-claude/credentials.json` is still reused. Claude Code's OAuth tokens are not shared.
+
+Or use an API key: write the file yourself:
 
 ```json
 { "apiKey": "sm_..." }
@@ -63,7 +73,7 @@ Get a key at [app.supermemory.ai](https://app.supermemory.ai).
 | --- | --- |
 | `/supermemory:index` | Index codebase architecture and patterns |
 | `/supermemory:status` | Auth, container tag, and API reachability |
-| `/supermemory:logout` | Clear saved Muse credentials |
+| `/supermemory:logout` | Revoke and clear saved Muse credentials |
 
 ## Configuration
 

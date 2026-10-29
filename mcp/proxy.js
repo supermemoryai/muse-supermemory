@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 const readline = require('node:readline');
 const { getContainerTag } = require('../hooks/lib/container-tag');
-const { getApiKey } = require('../hooks/lib/settings');
-
-const MCP_URL =
-  process.env.SUPERMEMORY_MCP_URL || 'https://mcp.supermemory.ai/mcp';
+const {
+  LOGIN_COMMAND,
+  credentialsFile,
+  settleAuth,
+} = require('../hooks/lib/auth');
+const { getAuthToken, getMcpUrl } = require('../hooks/lib/settings');
 const REQUEST_TIMEOUT_MS = 30000;
 
 const REPO_SCOPED_TOOLS = new Set([
@@ -66,7 +68,7 @@ function emitSseData(text) {
   }
 }
 
-async function forward(message, apiKey) {
+async function forward(message, apiKey, mcpUrl) {
   const headers = {
     Authorization: `Bearer ${apiKey}`,
     'Content-Type': 'application/json',
@@ -74,7 +76,7 @@ async function forward(message, apiKey) {
   };
   if (sessionId) headers['Mcp-Session-Id'] = sessionId;
 
-  const response = await fetch(MCP_URL, {
+  const response = await fetch(mcpUrl, {
     method: 'POST',
     headers,
     body: JSON.stringify(message),
@@ -108,14 +110,7 @@ async function forward(message, apiKey) {
 
 async function main() {
   const cwd = process.cwd();
-  let apiKey = null;
-  let keyError = null;
   let repoContainerTag = null;
-  try {
-    apiKey = getApiKey(cwd);
-  } catch (err) {
-    keyError = err;
-  }
   try {
     repoContainerTag = getContainerTag(cwd);
   } catch {
@@ -135,25 +130,31 @@ async function main() {
     }
 
     queue = queue.then(async () => {
-      if (keyError) {
-        sendError(
-          message.id,
-          -32001,
-          'Supermemory is not authenticated. Start a Muse Code session with the supermemory plugin to log in, or write {"apiKey":"sm_..."} to ~/.supermemory-muse/credentials.json.',
-        );
-        return;
-      }
       try {
+        // Re-read on every message: the SessionStart hook may finish login
+        // after this process starts, and OAuth tokens expire during sessions.
+        const apiKey = await getAuthToken(cwd);
+        const mcpUrl = getMcpUrl(cwd);
         injectRepoContainerTag(message, repoContainerTag);
-        await forward(message, apiKey);
+        await forward(message, apiKey, mcpUrl);
       } catch (err) {
+        if (err.code === 'AUTH_REQUIRED') {
+          sessionId = null;
+          sendError(
+            message.id,
+            -32001,
+            `Supermemory is not authenticated. Run ${LOGIN_COMMAND} or start a new Muse Code session to log in, or write {"apiKey":"sm_..."} to ${credentialsFile()}.`,
+          );
+          return;
+        }
         sendError(message.id, -32000, `Supermemory MCP proxy error: ${err.message}`);
       }
     });
   });
 
   rl.on('close', () => {
-    queue.then(() => process.exit(0));
+    // Let a refresh that is still rotating tokens save them before exiting.
+    queue.then(settleAuth).then(() => process.exit(0));
   });
 }
 

@@ -1,3 +1,5 @@
+const path = require('node:path');
+
 function getUserFriendlyError(err) {
   const status = err?.status;
 
@@ -12,7 +14,7 @@ function getUserFriendlyError(err) {
     return 'Bad request — your API key or request format may be invalid. Check your key at https://console.supermemory.ai';
   }
   if (status === 401) {
-    return 'Authentication failed — your API key may be expired or revoked. Re-authenticate or check https://console.supermemory.ai';
+    return `Authentication failed — your credentials may be expired or revoked. Log in again with: node "${path.join(__dirname, 'auth.js')}" login, or check your configured API key.`;
   }
   if (status === 403) {
     return 'Permission denied — this feature may require a different Supermemory plan. Check https://supermemory.ai/pricing';
