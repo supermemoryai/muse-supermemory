@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, test } from 'node:test';
@@ -139,5 +147,106 @@ describe('mcp proxy', () => {
     };
     injectRepoContainerTag(message, 'repo_example__abc');
     assert.equal(message.params.arguments.containerTag, 'other');
+  });
+});
+
+describe('background login', () => {
+  const { getAccessToken, getOAuthConfig, startBackgroundAuth } = require(
+    join(root, 'hooks/lib/auth.js'),
+  );
+
+  // A fake OAuth server plus a browser opener that records the consent URL.
+  async function setup(t) {
+    const dir = mkdtempSync(join(tmpdir(), 'muse-sm-'));
+    const binDir = join(dir, 'bin');
+    const urlFile = join(dir, 'authorize-url');
+    mkdirSync(binDir);
+    for (const opener of ['open', 'xdg-open']) {
+      writeFileSync(
+        join(binDir, opener),
+        `#!/bin/sh\nprintf '%s' "$1" > "${urlFile}"\n`,
+      );
+      chmodSync(join(binDir, opener), 0o755);
+    }
+    const server = createServer((req, res) => {
+      const url = new URL(req.url, base);
+      const json = (body) =>
+        res
+          .writeHead(200, { 'Content-Type': 'application/json' })
+          .end(JSON.stringify(body));
+      if (url.pathname === '/.well-known/oauth-authorization-server/api/auth') {
+        json({
+          issuer: `${base}/api/auth`,
+          authorization_endpoint: `${base}/api/auth/authorize`,
+          token_endpoint: `${base}/api/auth/token`,
+          registration_endpoint: `${base}/api/auth/register`,
+          revocation_endpoint: `${base}/api/auth/revoke`,
+        });
+      } else if (url.pathname === '/api/auth/register') {
+        json({ client_id: 'client-1', token_endpoint_auth_method: 'none' });
+      } else if (url.pathname === '/api/auth/authorize') {
+        const callback = new URL(url.searchParams.get('redirect_uri'));
+        callback.search = new URLSearchParams({
+          code: 'code-1',
+          state: url.searchParams.get('state'),
+        }).toString();
+        res.writeHead(302, { Location: callback.toString() }).end();
+      } else if (url.pathname === '/api/auth/token') {
+        json({
+          access_token: 'access-1',
+          token_type: 'Bearer',
+          expires_in: 3600,
+          refresh_token: 'refresh-1',
+        });
+      } else {
+        res.writeHead(404).end();
+      }
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const env = {
+      SUPERMEMORY_MUSE_HOME: process.env.SUPERMEMORY_MUSE_HOME,
+      PATH: process.env.PATH,
+    };
+    process.env.SUPERMEMORY_MUSE_HOME = join(dir, 'home');
+    process.env.PATH = `${binDir}:${process.env.PATH}`;
+    t.after(() => {
+      try {
+        process.kill(
+          JSON.parse(
+            readFileSync(join(dir, 'home', 'auth.lock'), 'utf-8'),
+          ).pid,
+        );
+      } catch {}
+      Object.assign(process.env, env);
+      server.close();
+      rmSync(dir, { recursive: true, force: true });
+    });
+    return { base, urlFile };
+  }
+
+  test('keeps listening after the hook stops waiting', async (t) => {
+    const { base, urlFile } = await setup(t);
+    const config = getOAuthConfig(base, `${base}/mcp`);
+
+    await assert.rejects(startBackgroundAuth(config, 1000), {
+      message: 'AUTH_PENDING',
+    });
+    await assert.rejects(getAccessToken(config), { code: 'AUTH_REQUIRED' });
+
+    const authorize = await fetch(readFileSync(urlFile, 'utf-8'), {
+      redirect: 'manual',
+    });
+    const callback = await fetch(authorize.headers.get('location'));
+    assert.equal(callback.status, 200);
+    assert.equal(await getAccessToken(config), 'access-1');
+  });
+
+  test('reports AUTH_FAILED when the login cannot start', async (t) => {
+    await setup(t);
+    const config = getOAuthConfig('http://127.0.0.1:9', 'http://127.0.0.1:9/mcp');
+    await assert.rejects(startBackgroundAuth(config, 10000), {
+      message: 'AUTH_FAILED',
+    });
   });
 });
