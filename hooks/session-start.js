@@ -15,7 +15,7 @@ const {
   credentialsFile,
   getOAuthConfig,
   settleAuth,
-  startAuthFlow,
+  startBackgroundAuth,
 } = require('./lib/auth');
 const { getUserFriendlyError } = require('./lib/error-helpers');
 const { lastSessionFile } = require('./lib/last-session');
@@ -90,18 +90,18 @@ async function main() {
     } catch (error) {
       if (error.code !== 'AUTH_REQUIRED') throw error;
       try {
-        apiKey = await startAuthFlow(
+        apiKey = await startBackgroundAuth(
           getOAuthConfig(
             getBaseUrl(cwd, projectConfig),
             getMcpUrl(cwd, projectConfig),
           ),
-          { timeoutMs: Math.max(1, 25000 - (Date.now() - authStartedAt)) },
+          Math.max(1, 20000 - (Date.now() - authStartedAt)),
         );
       } catch (authErr) {
         output(
           `<supermemory-status>
-${authErr.message === 'AUTH_TIMEOUT' ? 'Authentication timed out. Start a new session to retry login.' : 'Authentication failed. Start a new session to retry login.'}
-For an explicit login, run: ${LOGIN_COMMAND}
+${authErr.message === 'AUTH_PENDING' ? 'Finish connecting Supermemory in the browser window (you have 5 minutes). Memory turns on from your next message.' : 'Authentication failed. Start a new session to retry login.'}
+If the browser did not open, run: ${LOGIN_COMMAND}
 Or write an API key to ${credentialsFile()} as {"apiKey":"sm_..."}.
 </supermemory-status>`,
           [],
