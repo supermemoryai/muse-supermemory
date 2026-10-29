@@ -112,8 +112,7 @@ describe('hooks', () => {
       input: JSON.stringify({ tool_name: 'mcp__supermemory__add_memory' }),
     });
     assert.equal(result.status, 0, result.stderr);
-    const out = JSON.parse(result.stdout.trim().split('\n').at(-1));
-    assert.equal(out.continue, true);
+    assert.equal(result.stdout.trim(), '');
   });
 });
 

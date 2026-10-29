@@ -47,14 +47,11 @@ async function main() {
       });
       return;
     }
-
-    writeOutput({ continue: true, suppressOutput: true });
+    // Any other tool: no output, so Muse applies its normal approval. Muse 1.4.4 rejects
+    // `continue` in PreToolUse output and logs the hook as failed on every tool call.
   } catch (err) {
     debugLog(settings, 'Recall approve error', { error: err.message });
-    writeOutput({ continue: true, suppressOutput: true });
   }
 }
 
-main().catch(() => {
-  writeOutput({ continue: true, suppressOutput: true });
-});
+main().catch(() => {});
