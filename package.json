@@ -1,6 +1,6 @@
 {
   "name": "muse-supermemory",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Muse Code plugin by Supermemory AI",
   "private": true,
   "type": "commonjs",
