@@ -4,6 +4,12 @@ const { readStdin, writeOutput } = require('./lib/stdin');
 
 const READ_ONLY_TOOLS = new Set([
   'search_memory',
+  'get_profile',
+  'list_documents',
+  'get_document',
+  'list_memories',
+  'list_spaces',
+  'who_am_i',
   'listSpaces',
   'listMemories',
   'listDocuments',

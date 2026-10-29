@@ -106,6 +106,18 @@ describe('hooks', () => {
     assert.equal(out.hookSpecificOutput.permissionDecision, 'allow');
   });
 
+  test('PreToolUse allows the snake_case read tools', () => {
+    for (const tool of ['get_profile', 'list_documents', 'get_document', 'list_memories', 'list_spaces', 'who_am_i']) {
+      const result = spawnSync('node', [join(root, 'hooks/recall-approve.js')], {
+        encoding: 'utf8',
+        input: JSON.stringify({ tool_name: `mcp__supermemory__${tool}`, tool_input: {} }),
+      });
+      assert.equal(result.status, 0, result.stderr);
+      const out = JSON.parse(result.stdout.trim().split('\n').at(-1));
+      assert.equal(out.hookSpecificOutput?.permissionDecision, 'allow', tool);
+    }
+  });
+
   test('PreToolUse does not auto-allow writes', () => {
     const result = spawnSync('node', [join(root, 'hooks/recall-approve.js')], {
       encoding: 'utf8',
@@ -127,6 +139,31 @@ describe('mcp proxy', () => {
     };
     injectRepoContainerTag(message, 'repo_example__abc');
     assert.equal(message.params.arguments.containerTag, 'repo_example__abc');
+  });
+
+  test('defaults snake_case read and forget tools to the repo container', () => {
+    for (const name of ['list_documents', 'list_memories', 'get_document', 'get_profile', 'forget_memory']) {
+      const message = { method: 'tools/call', params: { name, arguments: {} } };
+      injectRepoContainerTag(message, 'repo_example__abc');
+      assert.equal(message.params.arguments.containerTag, 'repo_example__abc', name);
+    }
+  });
+
+  test('leaves account-level tools alone', () => {
+    for (const name of ['list_spaces', 'who_am_i', 'set-active-tag', 'select-space']) {
+      const message = { method: 'tools/call', params: { name, arguments: {} } };
+      injectRepoContainerTag(message, 'repo_example__abc');
+      assert.deepEqual(message.params.arguments, {}, name);
+    }
+  });
+
+  test('does not override an explicit namespace', () => {
+    const message = {
+      method: 'tools/call',
+      params: { name: 'list_documents', arguments: { namespace: 'team' } },
+    };
+    injectRepoContainerTag(message, 'repo_example__abc');
+    assert.deepEqual(message.params.arguments, { namespace: 'team' });
   });
 
   test('does not overwrite an explicit containerTag', () => {

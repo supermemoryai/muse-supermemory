@@ -11,8 +11,14 @@ const REQUEST_TIMEOUT_MS = 30000;
 
 const REPO_SCOPED_TOOLS = new Set([
   'search_memory',
+  'get_profile',
   'add_memory',
+  'forget_memory',
+  'list_documents',
   'listDocuments',
+  'get_document',
+  'getDocument',
+  'list_memories',
   'listMemories',
   'memory-graph',
   'fetch-graph-data',
@@ -42,7 +48,10 @@ function injectRepoContainerTag(message, containerTag) {
     }
   }
   if (!args || typeof args !== 'object' || Array.isArray(args)) return;
-  if (typeof args.containerTag === 'string' && args.containerTag.trim()) return;
+  // The hosted server reads `namespace ?? containerTag`; either one means the caller chose a space.
+  for (const key of ['namespace', 'containerTag']) {
+    if (typeof args[key] === 'string' && args[key].trim()) return;
+  }
 
   args.containerTag = containerTag;
   params.arguments = encoded ? JSON.stringify(args) : args;
