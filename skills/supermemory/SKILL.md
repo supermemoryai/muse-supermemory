@@ -9,7 +9,7 @@ Persistent memory for this Muse Code workspace.
 
 ## When to search
 
-Call the supermemory `search_memory` MCP tool when the user refers to past decisions, earlier sessions, or says "remember" / "we decided" / "last time". Scope with this project's `containerTag` when the question is about this repo.
+Call the supermemory `search_memory` MCP tool when the user refers to past decisions, earlier sessions, or says "remember" / "we decided" / "last time". Scope with this project's `namespace` when the question is about this repo.
 
 ## When to save
 

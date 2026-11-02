@@ -1,4 +1,4 @@
-const AGENT_ENTITY_CONTEXT = `Shared coding-agent memory for one software repository.
+const AGENT_SUPPORTING_CONTEXT = `Shared coding-agent memory for one software repository.
 
 RULES:
 - Try to remember things that a human would remember — a teammate recalls decisions and lessons, not what state the working tree was in
@@ -40,19 +40,50 @@ async function post(baseUrl, apiKey, path, body, timeoutMs = REQUEST_TIMEOUT_MS)
   return response.json();
 }
 
-function getProfile(baseUrl, apiKey, containerTag, query, options = {}) {
-  return post(baseUrl, apiKey, '/v4/profile', { containerTag, q: query }, options.timeoutMs);
+function namespacePath(namespace, resource) {
+  if (typeof namespace !== 'string' || !/^[a-zA-Z0-9_:-]{1,100}$/.test(namespace)) {
+    throw new Error('Invalid Supermemory namespace: expected 1–100 letters, digits, underscores, hyphens, or colons');
+  }
+  return `/ns/${encodeURIComponent(namespace)}/${resource}`;
 }
 
-function addMemory(baseUrl, apiKey, content, containerTag, metadata, options = {}) {
+async function getProfile(baseUrl, apiKey, namespace, options = {}) {
+  const result = await post(baseUrl, apiKey, namespacePath(namespace, 'profile'), {}, options.timeoutMs);
+  if (!Array.isArray(result?.profile?.static) || !Array.isArray(result?.profile?.dynamic)) {
+    throw new Error('Supermemory returned an invalid profile response');
+  }
+  return result;
+}
+
+async function searchMemories(baseUrl, apiKey, namespace, query, options = {}) {
+  const result = await post(baseUrl, apiKey, namespacePath(namespace, 'search'), {
+    query,
+    searchMode: 'memories',
+    threshold: 0.55,
+    rewriteQuery: false,
+    limit: 10,
+  }, options.timeoutMs);
+  if (!Array.isArray(result?.results)) {
+    throw new Error('Supermemory returned an invalid search response');
+  }
+  return result;
+}
+
+async function addMemory(baseUrl, apiKey, content, namespace, metadata, options = {}) {
   const body = {
     content,
-    containerTag,
     metadata: { sm_source: SOURCE, ...metadata },
+    taskType: 'memory',
+    dreaming: 'dynamic',
   };
-  if (options.customId) body.customId = options.customId;
-  if (options.entityContext) body.entityContext = options.entityContext;
-  return post(baseUrl, apiKey, '/v3/documents', body, options.timeoutMs);
+  if (options.id) body.id = options.id;
+  if (options.supportingContext) body.supportingContext = options.supportingContext;
+  const result = await post(baseUrl, apiKey, namespacePath(namespace, 'document'), body, options.timeoutMs);
+  const accepted = ['unknown', 'queued', 'extracting', 'chunking', 'embedding', 'indexing', 'done'];
+  if (typeof result?.id !== 'string' || !result.id.trim() || !accepted.includes(result.status)) {
+    throw new Error('Supermemory did not confirm document acceptance');
+  }
+  return result;
 }
 
-module.exports = { AGENT_ENTITY_CONTEXT, getProfile, addMemory };
+module.exports = { AGENT_SUPPORTING_CONTEXT, getProfile, searchMemories, addMemory };

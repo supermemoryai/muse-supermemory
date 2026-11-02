@@ -101,7 +101,7 @@ function getProjectIdentity(cwd) {
   );
 }
 
-function getGeneratedContainerTag(cwd) {
+function getGeneratedNamespace(cwd) {
   const basePath = getProjectBasePath(cwd);
   const gitRepoName = getGitRepoName(basePath);
   const repoName = gitRepoName || path.basename(basePath) || 'unknown';
@@ -109,12 +109,15 @@ function getGeneratedContainerTag(cwd) {
   return `repo_${shortName || 'unknown'}__${getProjectIdentity(cwd)}`;
 }
 
-function getContainerTag(cwd) {
+function getNamespace(cwd) {
   const projectConfig = loadProjectConfig(cwd);
   return (
+    projectConfig?.namespace ||
+    projectConfig?.repoNamespace ||
     projectConfig?.repoContainerTag ||
+    process.env.SUPERMEMORY_REPO_NAMESPACE ||
     process.env.SUPERMEMORY_REPO_TAG ||
-    getGeneratedContainerTag(cwd)
+    getGeneratedNamespace(cwd)
   );
 }
 
@@ -130,8 +133,8 @@ module.exports = {
   getGitRepoName,
   getProjectBasePath,
   getProjectIdentity,
-  getGeneratedContainerTag,
-  getContainerTag,
+  getGeneratedNamespace,
+  getNamespace,
   getProjectName,
   sanitizeRepoName,
 };

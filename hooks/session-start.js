@@ -1,5 +1,5 @@
 const { getProfile } = require('./lib/api');
-const { getContainerTag, getProjectName } = require('./lib/container-tag');
+const { getNamespace, getProjectName } = require('./lib/namespace');
 const { loadProjectConfig } = require('./lib/project-config');
 const {
   loadSettings,
@@ -21,10 +21,10 @@ const { getUserFriendlyError } = require('./lib/error-helpers');
 const { lastSessionFile } = require('./lib/last-session');
 const fs = require('node:fs');
 
-function welcomeBackNotice(containerTag) {
+function welcomeBackNotice(namespace) {
   try {
     const last = JSON.parse(fs.readFileSync(lastSessionFile(), 'utf-8'));
-    if (!last.savedAt || last.containerTag !== containerTag) return null;
+    if (!last.savedAt || (last.namespace || last.containerTag) !== namespace) return null;
     const hours = (Date.now() - new Date(last.savedAt).getTime()) / 3600000;
     if (hours < 6) return null;
     const ago =
@@ -35,7 +35,7 @@ function welcomeBackNotice(containerTag) {
   }
 }
 
-function formatContext(profileResult, maxItems, containerTag, projectName) {
+function formatContext(profileResult, maxItems, namespace, projectName) {
   const statics = (profileResult?.profile?.static || []).slice(0, maxItems);
   const dynamics = (profileResult?.profile?.dynamic || []).slice(0, maxItems);
   if (statics.length === 0 && dynamics.length === 0) return null;
@@ -43,18 +43,18 @@ function formatContext(profileResult, maxItems, containerTag, projectName) {
   const sections = [];
   if (statics.length > 0) {
     sections.push(
-      `## User Profile (Persistent)\n${statics.map((f) => `- ◪ ${f}`).join('\n')}`,
+      `## User Profile (Persistent)\n${statics.map((f) => `- ◪ ${f.memory}`).join('\n')}`,
     );
   }
   if (dynamics.length > 0) {
     sections.push(
-      `## Recent Context\n${dynamics.map((f) => `- ◪ ${f}`).join('\n')}`,
+      `## Recent Context\n${dynamics.map((f) => `- ◪ ${f.memory}`).join('\n')}`,
     );
   }
 
   return `<supermemory-context>
 Recalled memory for this project (${projectName}). Every line marked ◪ comes from supermemory — when citing one, keep the mark and phrase it naturally (e.g. "◪ last week you told me about X"). If you name the source, say "from supermemory" — never "from memory".
-This project's memory container: ${containerTag}
+This project's memory namespace: ${namespace}
 
 ${sections.join('\n\n')}
 </supermemory-context>`;
@@ -79,9 +79,9 @@ async function main() {
     const cwd = input.cwd || process.cwd();
     const projectConfig = loadProjectConfig(cwd);
     const projectName = getProjectName(cwd);
-    const containerTag = getContainerTag(cwd);
+    const namespace = getNamespace(cwd);
 
-    debugLog(settings, 'SessionStart', { cwd, projectName, containerTag });
+    debugLog(settings, 'SessionStart', { cwd, projectName, namespace });
 
     const authStartedAt = Date.now();
     let apiKey;
@@ -115,7 +115,7 @@ Or write an API key to ${credentialsFile()} as {"apiKey":"sm_..."}.
     let profileResult = null;
     let apiError = null;
     try {
-      profileResult = await getProfile(baseUrl, apiKey, containerTag, projectName);
+      profileResult = await getProfile(baseUrl, apiKey, namespace);
     } catch (err) {
       if (err?.status !== 404) apiError = getUserFriendlyError(err);
       debugLog(settings, 'Profile fetch failed', { error: err.message });
@@ -124,7 +124,7 @@ Or write an API key to ${credentialsFile()} as {"apiKey":"sm_..."}.
     const context = formatContext(
       profileResult,
       settings.maxProfileItems,
-      containerTag,
+      namespace,
       projectName,
     );
     const loaded =
@@ -144,10 +144,10 @@ Or write an API key to ${credentialsFile()} as {"apiKey":"sm_..."}.
 Memory could not be loaded this session — do not assume this project has no memories.
 </supermemory-context>`
             : `<supermemory-context>
-No previous memories found for this project (container: ${containerTag}).
+No previous memories found for this project (namespace: ${namespace}).
 Memories will be saved as you work.
 </supermemory-context>`)),
-      [[memoryNotice, welcomeBackNotice(containerTag)].filter(Boolean).join(gray(' · ')) || null],
+      [[memoryNotice, welcomeBackNotice(namespace)].filter(Boolean).join(gray(' · ')) || null],
     );
   } catch (err) {
     const friendly = getUserFriendlyError(err);
@@ -162,8 +162,12 @@ Session will continue without memory context.
   }
 }
 
-main().catch(async (err) => {
-  console.error(`Supermemory fatal: ${err.message}`);
-  await settleAuth();
-  process.exit(1);
-});
+module.exports = { formatContext };
+
+if (require.main === module) {
+  main().catch(async (err) => {
+    console.error(`Supermemory fatal: ${err.message}`);
+    await settleAuth();
+    process.exit(1);
+  });
+}

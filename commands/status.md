@@ -8,14 +8,14 @@ Report the user's Supermemory status for this Muse Code session.
 2. For an API key, probe real connectivity with it (skip this for OAuth; the MCP check below covers it):
 
 ```
-curl -sS -o /dev/null -w '%{http_code}' -m 8 -X POST "${SUPERMEMORY_API_URL:-https://api.supermemory.ai}/v4/profile" \
+curl -sS -o /dev/null -w '%{http_code}' -m 8 -X POST "${SUPERMEMORY_API_URL:-https://api.supermemory.ai}/ns/<this project's namespace>/profile" \
   -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -H "x-sm-source: muse-code" \
-  -d '{"containerTag":"<this project's container tag>","q":"connectivity probe"}'
+  -d '{}'
 ```
 
-Interpret loudly: `200` → reachable and the key works; `401`/`403` → reachable but the key is invalid or revoked; timeout / connection error / `5xx` → API unreachable.
+Interpret loudly: `200` → reachable and the key works; `401` → key invalid or revoked; `403` → key lacks access to this namespace; timeout / connection error / `5xx` → API unreachable.
 
-3. Call the `whoAmI` MCP tool if the supermemory MCP server is connected.
-4. Report: authenticated or not, key source, the active project container tag, API reachability, and MCP reachability.
+3. Call the `who_am_i` MCP tool if the supermemory MCP server is connected.
+4. Report: authenticated or not, key source, the active project namespace, API reachability, and MCP reachability.
 
 If not authenticated, tell the user to run `node <path-to>/hooks/lib/auth.js login` (or start a new session, which opens the browser login automatically), or to write `{"apiKey":"sm_..."}` to `~/.supermemory-muse/credentials.json`.
