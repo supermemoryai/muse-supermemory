@@ -75,8 +75,8 @@ No stored memories matched this prompt for this project.
 
 Deeper history may still exist. Search it with the supermemory search_memory tool.
 
-- Scope to this project with namespace: "${namespace}"
-- Omit namespace to search the account's active/shared space instead.
+- Calls without a namespace search this project ("${namespace}").
+- To search another space, pass its namespace (find it with list_spaces).
 - Read-only supermemory calls are auto-approved; they never prompt the user.
 
 Worth a call when the user refers to past decisions, earlier sessions, or says
@@ -209,7 +209,7 @@ async function main() {
   }
 }
 
-module.exports = { selectResults };
+module.exports = { formatDiscovery, selectResults };
 
 if (require.main === module) {
   main().catch(() => {

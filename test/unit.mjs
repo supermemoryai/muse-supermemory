@@ -91,6 +91,14 @@ describe('hooks', () => {
     assert.deepEqual(results.map((result) => result.id), ['mem_1']);
   });
 
+  test('UserPromptSubmit discovery hint matches proxy scoping', () => {
+    const { formatDiscovery } = require(join(root, 'hooks/recall.js'));
+    const hint = formatDiscovery('repo_example__abc');
+    assert.match(hint, /without a namespace search this project \("repo_example__abc"\)/);
+    assert.match(hint, /list_spaces/);
+    assert.doesNotMatch(hint, /Omit namespace to search the account/);
+  });
+
   test('SessionStart formats v5 profile fact objects', () => {
     const { formatContext } = require(join(root, 'hooks/session-start.js'));
     const context = formatContext({ profile: {
