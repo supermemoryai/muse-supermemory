@@ -1,9 +1,9 @@
-const { addMemory, AGENT_ENTITY_CONTEXT } = require('./lib/api');
+const { addMemory, AGENT_SUPPORTING_CONTEXT } = require('./lib/api');
 const {
-  getContainerTag,
+  getNamespace,
   getProjectIdentity,
   getProjectName,
-} = require('./lib/container-tag');
+} = require('./lib/namespace');
 const { loadProjectConfig } = require('./lib/project-config');
 const { loadSettings, getAuthToken, getBaseUrl, debugLog } = require('./lib/settings');
 const { settleAuth } = require('./lib/auth');
@@ -47,13 +47,13 @@ async function main() {
     }
 
     const baseUrl = getBaseUrl(cwd, projectConfig);
-    const containerTag = getContainerTag(cwd);
+    const namespace = getNamespace(cwd);
 
     const result = await addMemory(
       baseUrl,
       apiKey,
       delta.formatted,
-      containerTag,
+      namespace,
       {
         type: 'session_turn',
         project: getProjectName(cwd),
@@ -62,7 +62,7 @@ async function main() {
         sm_capture_mode: 'automatic',
         timestamp: new Date().toISOString(),
       },
-      { customId: sessionId, entityContext: AGENT_ENTITY_CONTEXT },
+      { id: sessionId, supportingContext: AGENT_SUPPORTING_CONTEXT },
     );
 
     if (delta.lastSequence != null) {
@@ -71,7 +71,7 @@ async function main() {
 
     if (result?.id) {
       try {
-        saveLastSession({ id: result.id, containerTag });
+        saveLastSession({ id: result.id, namespace });
       } catch {}
     }
 

@@ -137,7 +137,7 @@ Gather: where important logic lives
 
 After exploring all phases, save several focused memories — architecture, conventions, key files / how to run — not one giant dump.
 
-Call the supermemory `add_memory` MCP tool. Omit `containerTag` so the write scopes to this repo.
+Call the supermemory `add_memory` MCP tool. Omit `namespace` so the proxy scopes the write to this repo.
 
 Confirm with: `Codebase indexed — [N] memories saved about [project name]`
 

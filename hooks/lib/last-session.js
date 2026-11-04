@@ -1,7 +1,7 @@
 const fs = require('node:fs');
 const { settingsDir, lastSessionFile } = require('./paths');
 
-function saveLastSession({ id, containerTag }) {
+function saveLastSession({ id, namespace }) {
   if (!id) return;
   fs.mkdirSync(settingsDir(), { recursive: true, mode: 0o700 });
   fs.writeFileSync(
@@ -9,7 +9,7 @@ function saveLastSession({ id, containerTag }) {
     `${JSON.stringify(
       {
         id,
-        containerTag: containerTag || null,
+        namespace: namespace || null,
         savedAt: new Date().toISOString(),
       },
       null,

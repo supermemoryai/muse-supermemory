@@ -72,7 +72,7 @@ Get a key at [app.supermemory.ai](https://app.supermemory.ai).
 | Command | Description |
 | --- | --- |
 | `/supermemory:index` | Index codebase architecture and patterns |
-| `/supermemory:status` | Auth, container tag, and API reachability |
+| `/supermemory:status` | Auth, namespace, and API reachability |
 | `/supermemory:logout` | Revoke and clear saved Muse credentials |
 
 ## Configuration
@@ -92,17 +92,19 @@ Get a key at [app.supermemory.ai](https://app.supermemory.ai).
 {
   "apiKey": "sm_...",
   "baseUrl": "https://api.supermemory.ai",
-  "repoContainerTag": "my-team-project"
+  "namespace": "my-team-project"
 }
 ```
 
-A Claude Code project config at `.claude/.supermemory-claude/config.json` is also honored, so the same repo keeps one container tag across tools.
+A Claude Code project config at `.claude/.supermemory-claude/config.json` is also read when no Muse project config exists. To pin the namespace, set `namespace` in `.muse/supermemory.json`.
+
+Existing `repoNamespace`, `repoContainerTag`, and `SUPERMEMORY_REPO_TAG` overrides still resolve to the same namespace. New configuration should use `namespace` or `SUPERMEMORY_REPO_NAMESPACE`.
 
 | Option | Description |
 | --- | --- |
 | `apiKey` | Project-specific API key |
 | `baseUrl` | Supermemory API URL |
-| `repoContainerTag` | Override the auto-derived team/project container |
+| `namespace` | Override the auto-derived team/project namespace |
 
 ## License
 

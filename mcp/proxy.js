@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 const readline = require('node:readline');
-const { getContainerTag } = require('../hooks/lib/container-tag');
+const { getNamespace } = require('../hooks/lib/namespace');
 const {
   LOGIN_COMMAND,
   credentialsFile,
@@ -11,8 +11,14 @@ const REQUEST_TIMEOUT_MS = 30000;
 
 const REPO_SCOPED_TOOLS = new Set([
   'search_memory',
+  'get_profile',
   'add_memory',
+  'forget_memory',
+  'list_documents',
   'listDocuments',
+  'get_document',
+  'getDocument',
+  'list_memories',
   'listMemories',
   'memory-graph',
   'fetch-graph-data',
@@ -21,8 +27,8 @@ const REPO_SCOPED_TOOLS = new Set([
 
 let sessionId = null;
 
-function injectRepoContainerTag(message, containerTag) {
-  if (!containerTag || message.method !== 'tools/call') return;
+function injectRepoNamespace(message, namespace) {
+  if (!namespace || message.method !== 'tools/call') return;
   const params = message.params;
   if (!params || typeof params !== 'object') return;
   if (!REPO_SCOPED_TOOLS.has(params.name)) return;
@@ -30,7 +36,7 @@ function injectRepoContainerTag(message, containerTag) {
   let args = params.arguments;
   let encoded = false;
   if (args == null) {
-    params.arguments = { containerTag };
+    params.arguments = { namespace };
     return;
   }
   if (typeof args === 'string') {
@@ -42,9 +48,10 @@ function injectRepoContainerTag(message, containerTag) {
     }
   }
   if (!args || typeof args !== 'object' || Array.isArray(args)) return;
+  if (typeof args.namespace === 'string' && args.namespace.trim()) return;
   if (typeof args.containerTag === 'string' && args.containerTag.trim()) return;
 
-  args.containerTag = containerTag;
+  args.namespace = namespace;
   params.arguments = encoded ? JSON.stringify(args) : args;
 }
 
@@ -110,11 +117,11 @@ async function forward(message, apiKey, mcpUrl) {
 
 async function main() {
   const cwd = process.cwd();
-  let repoContainerTag = null;
+  let repoNamespace = null;
   try {
-    repoContainerTag = getContainerTag(cwd);
+    repoNamespace = getNamespace(cwd);
   } catch {
-    repoContainerTag = null;
+    repoNamespace = null;
   }
 
   let queue = Promise.resolve();
@@ -135,7 +142,7 @@ async function main() {
         // after this process starts, and OAuth tokens expire during sessions.
         const apiKey = await getAuthToken(cwd);
         const mcpUrl = getMcpUrl(cwd);
-        injectRepoContainerTag(message, repoContainerTag);
+        injectRepoNamespace(message, repoNamespace);
         await forward(message, apiKey, mcpUrl);
       } catch (err) {
         if (err.code === 'AUTH_REQUIRED') {
@@ -158,7 +165,7 @@ async function main() {
   });
 }
 
-module.exports = { injectRepoContainerTag };
+module.exports = { injectRepoNamespace };
 
 if (require.main === module) {
   main();

@@ -1,9 +1,9 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const { getProfile } = require('./lib/api');
+const { searchMemories } = require('./lib/api');
 const { BRAND, gray, red } = require('./lib/colors');
-const { getContainerTag } = require('./lib/container-tag');
+const { getNamespace } = require('./lib/namespace');
 const { getUserFriendlyError } = require('./lib/error-helpers');
 const { loadProjectConfig } = require('./lib/project-config');
 const {
@@ -37,6 +37,13 @@ function resultText(r) {
   return text || null;
 }
 
+function selectResults(response) {
+  return (response?.results || [])
+    .filter((r) => resultText(r))
+    .filter((r) => !Number.isFinite(r.similarity) || r.similarity >= MIN_SIMILARITY)
+    .slice(0, MAX_RESULTS);
+}
+
 function hashText(text) {
   return crypto
     .createHash('sha256')
@@ -62,14 +69,14 @@ function markDiscoverySent(sessionDir) {
   } catch {}
 }
 
-function formatDiscovery(containerTag) {
+function formatDiscovery(namespace) {
   return `<supermemory-recall>
 No stored memories matched this prompt for this project.
 
 Deeper history may still exist. Search it with the supermemory search_memory tool.
 
-- Scope to this project with containerTag: "${containerTag}"
-- Omit containerTag to search the account's active/shared space instead.
+- Calls without a namespace search this project ("${namespace}").
+- To search another space, pass its namespace (find it with list_spaces).
 - Read-only supermemory calls are auto-approved; they never prompt the user.
 
 Worth a call when the user refers to past decisions, earlier sessions, or says
@@ -77,7 +84,7 @@ Worth a call when the user refers to past decisions, earlier sessions, or says
 </supermemory-recall>`;
 }
 
-function formatRecall(results, containerTag) {
+function formatRecall(results, namespace) {
   const lines = results.map((r) => {
     const text = resultText(r).replace(/\s+/g, ' ').slice(0, MAX_RESULT_CHARS);
     const title = typeof r.title === 'string' && r.title.trim() ? r.title.trim() : null;
@@ -88,7 +95,7 @@ function formatRecall(results, containerTag) {
 ◪ Recalled from supermemory for this prompt (relevance-ranked):
 ${lines.join('\n')}
 
-When one of these shapes your answer, credit it naturally with the ◪ prefix (e.g. "◪ earlier you decided X"); if you name the source, say "from supermemory" — never "from memory". For deeper history, call the supermemory search_memory tool (containerTag: "${containerTag}").
+When one of these shapes your answer, credit it naturally with the ◪ prefix (e.g. "◪ earlier you decided X"); if you name the source, say "from supermemory" — never "from memory". For deeper history, call the supermemory search_memory tool (namespace: "${namespace}").
 </supermemory-recall>`;
 }
 
@@ -126,21 +133,18 @@ async function main() {
       return;
     }
 
-    const containerTag = getContainerTag(cwd);
-    const response = await getProfile(
+    const namespace = getNamespace(cwd);
+    const response = await searchMemories(
       getBaseUrl(cwd, projectConfig),
       apiKey,
-      containerTag,
+      namespace,
       prompt.slice(0, MAX_QUERY_LENGTH),
       {
         timeoutMs: Math.max(1, SEARCH_TIMEOUT_MS - (Date.now() - requestStarted)),
       },
     );
 
-    const results = (response?.searchResults?.results || [])
-      .filter((r) => resultText(r))
-      .filter((r) => !Number.isFinite(r.similarity) || r.similarity >= MIN_SIMILARITY)
-      .slice(0, MAX_RESULTS);
+    const results = selectResults(response);
 
     const sessionDir = getSessionDir(input.session_id);
     const seen = sessionDir ? readSeenHashes(sessionDir) : [];
@@ -161,7 +165,7 @@ async function main() {
           systemMessage: `${BRAND} ${gray('·')} no memories yet for this project`,
           hookSpecificOutput: {
             hookEventName: 'UserPromptSubmit',
-            additionalContext: formatDiscovery(containerTag),
+            additionalContext: formatDiscovery(namespace),
           },
         });
         return;
@@ -179,7 +183,7 @@ async function main() {
       } catch {}
     }
 
-    const context = formatRecall(fresh, containerTag);
+    const context = formatRecall(fresh, namespace);
     const tok = gray(`(${Math.round(context.length / 4)} tok)`);
     const label = repeats
       ? `recalled ${fresh.length} new ${tok}${gray(` · ${repeats} already in context`)}`
@@ -205,6 +209,10 @@ async function main() {
   }
 }
 
-main().catch(() => {
-  writeOutput({ continue: true, suppressOutput: true });
-});
+module.exports = { formatDiscovery, selectResults };
+
+if (require.main === module) {
+  main().catch(() => {
+    writeOutput({ continue: true, suppressOutput: true });
+  });
+}
