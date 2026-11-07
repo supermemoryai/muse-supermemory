@@ -82,9 +82,23 @@ Get a key at [app.supermemory.ai](https://app.supermemory.ai).
 ```json
 {
   "maxProfileItems": 5,
-  "debug": false
+  "debug": false,
+  "captureSubagents": false,
+  "captureHeadless": false
 }
 ```
+
+| Option | Description |
+| --- | --- |
+| `captureSubagents` | `true` turns profile, prompt recall and auto capture back on for subagent and helper sessions (default: `false`) |
+| `captureHeadless` | `true` turns them back on for `muse exec` runs (default: `false`) |
+
+By default the hooks make no Supermemory calls in two kinds of session:
+
+- **Subagents and helpers** — any child agent Muse spawns, including its own reminder and review observers. Muse marks these by giving the hook a `MUSE_THREAD_ID` that differs from `MUSE_SESSION_ID`.
+- **Headless runs** — `muse exec`, detected from the Muse process that runs the hook. Sessions driven through `muse serve` (SDK) or `muse acp` (editors) cannot be told apart from interactive use and still recall and capture.
+
+The environment variables `SUPERMEMORY_CAPTURE_SUBAGENTS=true` and `SUPERMEMORY_CAPTURE_HEADLESS=true` do the same, but Muse clears the environment of plugin hooks, so set them in `settings.json`.
 
 **Project** — `.muse/supermemory.json`
 

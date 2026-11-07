@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, test } from 'node:test';
@@ -139,5 +140,79 @@ describe('mcp proxy', () => {
     };
     injectRepoContainerTag(message, 'repo_example__abc');
     assert.equal(message.params.arguments.containerTag, 'other');
+  });
+});
+
+describe('session scope', () => {
+  const { isHeadless } = require(join(root, 'hooks/lib/session-scope.js'));
+
+  test('only `muse exec` counts as headless', () => {
+    assert.equal(isHeadless(['/usr/local/bin/muse-bin-1.4.14', 'exec', 'fix it']), true);
+    assert.equal(isHeadless(['/usr/local/bin/muse-bin-1.4.14', '--provider', 'echo']), false);
+    assert.equal(isHeadless(['/usr/local/bin/muse-bin-1.4.14', 'serve']), false);
+    assert.equal(isHeadless([]), false);
+  });
+
+  async function hookRequests(script, input, env) {
+    const requests = [];
+    const server = createServer((req, res) => {
+      requests.push(`${req.method} ${req.url}`);
+      req.resume();
+      req.on('end', () => {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end('{"id":"doc_1","profile":{"static":[],"dynamic":[]}}');
+      });
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const home = mkdtempSync(join(tmpdir(), 'muse-sm-home-'));
+    try {
+      const child = spawn('node', [join(root, 'hooks', script)], {
+        env: {
+          PATH: process.env.PATH,
+          HOME: home,
+          SUPERMEMORY_MUSE_HOME: home,
+          SUPERMEMORY_API_KEY: 'sm_test',
+          SUPERMEMORY_API_URL: `http://127.0.0.1:${server.address().port}`,
+          ...env,
+        },
+      });
+      child.stdin.end(JSON.stringify(input));
+      child.stdout.resume();
+      child.stderr.resume();
+      const code = await new Promise((resolve) => child.on('close', resolve));
+      assert.equal(code, 0);
+      return requests;
+    } finally {
+      server.close();
+      rmSync(home, { recursive: true, force: true });
+    }
+  }
+
+  const subagent = { MUSE_SESSION_ID: 'top-level', MUSE_THREAD_ID: 'child' };
+  const prompt = {
+    prompt: 'how do we deploy this service again?',
+    session_id: 'child',
+    cwd: process.cwd(),
+  };
+
+  test('subagent hooks make no Supermemory calls', async () => {
+    assert.deepEqual(await hookRequests('session-start.js', prompt, subagent), []);
+    assert.deepEqual(await hookRequests('recall.js', prompt, subagent), []);
+  });
+
+  test('SUPERMEMORY_CAPTURE_SUBAGENTS=true restores subagent recall', async () => {
+    const requests = await hookRequests('recall.js', prompt, {
+      ...subagent,
+      SUPERMEMORY_CAPTURE_SUBAGENTS: 'true',
+    });
+    assert.deepEqual(requests, ['POST /v4/profile']);
+  });
+
+  test('top-level chats still recall', async () => {
+    const requests = await hookRequests('recall.js', prompt, {
+      MUSE_SESSION_ID: 'top-level',
+      MUSE_THREAD_ID: 'top-level',
+    });
+    assert.deepEqual(requests, ['POST /v4/profile']);
   });
 });
