@@ -96,9 +96,9 @@ Get a key at [app.supermemory.ai](https://app.supermemory.ai).
 By default the hooks make no Supermemory calls in two kinds of session:
 
 - **Subagents and helpers** — any child agent Muse spawns, including its own reminder and review observers. Muse marks these by giving the hook a `MUSE_THREAD_ID` that differs from `MUSE_SESSION_ID`.
-- **Headless runs** — `muse exec`, detected from the Muse process that runs the hook. Sessions driven through `muse serve` (SDK) or `muse acp` (editors) cannot be told apart from interactive use and still recall and capture.
+- **Headless runs** — `muse exec`, detected from the Muse process that runs the hook. Sessions driven through `muse serve` (SDK) or `muse acp` (editors) cannot be told apart from interactive use and still recall and capture. The opt-in legacy exec backend of the Muse Code ACP adapter (`MUSE_CODE_ACP_BACKEND=exec`) runs `muse exec --json` per turn, so editor sessions on it count as headless; set `captureHeadless: true` to keep them.
 
-The environment variables `SUPERMEMORY_CAPTURE_SUBAGENTS=true` and `SUPERMEMORY_CAPTURE_HEADLESS=true` do the same, but Muse clears the environment of plugin hooks, so set them in `settings.json`.
+The environment variables `SUPERMEMORY_CAPTURE_SUBAGENTS` and `SUPERMEMORY_CAPTURE_HEADLESS` (`true`/`1`/`yes`/`on` or `false`/`0`/`no`/`off`) override `settings.json` in both directions, but Muse clears the environment of plugin hooks, so set them in `settings.json`.
 
 **Project** — `.muse/supermemory.json`
 
