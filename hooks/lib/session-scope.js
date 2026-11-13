@@ -1,8 +1,15 @@
 const fs = require('node:fs');
 const { execFileSync } = require('node:child_process');
 
+const ENV_TRUE = new Set(['true', '1', 'yes', 'on']);
+const ENV_FALSE = new Set(['false', '0', 'no', 'off']);
+
+// The environment wins over settings.json in both directions.
 function optedIn(envName, setting) {
-  return process.env[envName] === 'true' || setting === true;
+  const value = process.env[envName]?.trim().toLowerCase();
+  if (ENV_TRUE.has(value)) return true;
+  if (ENV_FALSE.has(value)) return false;
+  return setting === true;
 }
 
 // Muse sets MUSE_THREAD_ID to the chat or subagent a hook fires for and MUSE_SESSION_ID to its top-level chat.
