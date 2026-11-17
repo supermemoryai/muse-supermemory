@@ -1,111 +1,66 @@
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
-const { settingsDir } = require('./paths');
+const { atomicWriteJson, getSessionDir, readJson } = require('./session-state');
 
-function trackerDir() {
-  return path.join(settingsDir(), 'trackers');
-}
-const MAX_CAPTURE_CHARS = 12000;
+const CURSOR_FILE = 'cursor.json';
+const HEAD_BYTES = 4096;
 
-function ensureTrackerDir() {
-  fs.mkdirSync(trackerDir(), { recursive: true, mode: 0o700 });
-}
-
-function getLastCapturedSequence(sessionId) {
-  ensureTrackerDir();
-  const file = path.join(trackerDir(), `${sessionId}.txt`);
-  if (!fs.existsSync(file)) return null;
-  const value = Number(fs.readFileSync(file, 'utf-8').trim());
-  return Number.isFinite(value) ? value : null;
-}
-
-function setLastCapturedSequence(sessionId, sequence) {
-  ensureTrackerDir();
-  fs.writeFileSync(path.join(trackerDir(), `${sessionId}.txt`), String(sequence));
-}
-
-function parseJsonl(file) {
-  if (!file || !fs.existsSync(file)) return [];
-  return fs
-    .readFileSync(file, 'utf-8')
-    .split('\n')
-    .map((line) => {
-      if (!line.trim()) return null;
-      try {
-        return JSON.parse(line);
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean);
-}
-
-function eventKind(record) {
-  const payload = record?.payload;
-  if (!payload || typeof payload !== 'object') return '';
-  const event = payload.event;
-  if (event && typeof event === 'object' && typeof event.kind === 'string') {
-    return event.kind;
+function readCursor(file) {
+  const cursor = readJson(file, null);
+  if (
+    Number.isInteger(cursor?.offset) &&
+    Number.isInteger(cursor?.generation) &&
+    typeof cursor?.headHash === 'string'
+  ) {
+    return cursor;
   }
-  return typeof payload.kind === 'string' ? payload.kind : '';
+  return { offset: 0, generation: 0, headHash: '' };
 }
 
-function eventPayload(record) {
-  const payload = record?.payload;
-  if (!payload || typeof payload !== 'object') return {};
-  return payload.event && typeof payload.event === 'object' ? payload.event : payload;
+function hashPrefix(fd, length) {
+  if (length <= 0) return '';
+  const buffer = Buffer.alloc(length);
+  fs.readSync(fd, buffer, 0, length, 0);
+  return crypto.createHash('sha256').update(buffer).digest('hex');
 }
 
-function cleanContent(text) {
-  if (!text || typeof text !== 'string') return '';
-  return text
-    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
-    .replace(/<supermemory-context>[\s\S]*?<\/supermemory-context>/g, '')
-    .replace(/<supermemory-recall>[\s\S]*?<\/supermemory-recall>/g, '')
-    .replace(/<supermemory-status>[\s\S]*?<\/supermemory-status>/g, '')
-    .trim();
-}
-
-function formatNewEntries(transcriptPath, sessionId) {
-  const records = parseJsonl(transcriptPath);
-  if (records.length === 0) return null;
-
-  const lastSequence = getLastCapturedSequence(sessionId);
-  const parts = [];
-  let latestSequence = lastSequence;
-
-  for (const record of records) {
-    const sequence = Number(record.sequence);
-    if (Number.isFinite(sequence)) {
-      if (lastSequence !== null && sequence <= lastSequence) continue;
-      latestSequence = sequence;
+function readRawDelta(transcriptPath, sessionId) {
+  const sessionDir = getSessionDir(sessionId);
+  if (!sessionDir || !transcriptPath || !fs.existsSync(transcriptPath)) return null;
+  const cursorFile = path.join(sessionDir, CURSOR_FILE);
+  const previous = readCursor(cursorFile);
+  const fd = fs.openSync(transcriptPath, 'r');
+  try {
+    const size = fs.fstatSync(fd).size;
+    let { offset, generation } = previous;
+    if (
+      size < offset ||
+      previous.headHash !== hashPrefix(fd, Math.min(HEAD_BYTES, offset))
+    ) {
+      offset = 0;
+      generation += 1;
     }
+    if (size <= offset) return null;
 
-    const kind = eventKind(record);
-    const event = eventPayload(record);
-    const payloadKind = record?.payload?.kind;
+    const buffer = Buffer.alloc(size - offset);
+    fs.readSync(fd, buffer, 0, buffer.length, offset);
+    const end = buffer.lastIndexOf(0x0a) + 1;
+    if (end === 0) return null;
 
-    if (kind === 'started' && payloadKind === 'run') {
-      const prompt = cleanContent(event.prompt);
-      if (prompt) parts.push(`<|start|>user<|message|>${prompt}<|end|>`);
-      continue;
-    }
-
-    if (kind === 'assistant_message_committed') {
-      const text = cleanContent(event.text);
-      if (text) parts.push(`<|start|>assistant<|message|>${text}<|end|>`);
-    }
+    const nextOffset = offset + end;
+    const headHash = hashPrefix(fd, Math.min(HEAD_BYTES, nextOffset));
+    return {
+      raw: buffer.subarray(0, end).toString('utf8'),
+      generation,
+      offset,
+      commit: () =>
+        atomicWriteJson(cursorFile, { offset: nextOffset, generation, headHash }),
+    };
+  } finally {
+    fs.closeSync(fd);
   }
-
-  if (parts.length === 0) return null;
-
-  let formatted = parts.join('\n');
-  if (formatted.length > MAX_CAPTURE_CHARS) {
-    formatted = formatted.slice(-MAX_CAPTURE_CHARS);
-  }
-
-  return { formatted, lastSequence: latestSequence };
 }
 
 function resolveTranscriptPath(input) {
@@ -143,7 +98,6 @@ function resolveTranscriptPath(input) {
 }
 
 module.exports = {
-  formatNewEntries,
-  setLastCapturedSequence,
+  readRawDelta,
   resolveTranscriptPath,
 };

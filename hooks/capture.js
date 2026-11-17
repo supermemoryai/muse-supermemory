@@ -1,4 +1,4 @@
-const { addMemory, AGENT_SUPPORTING_CONTEXT } = require('./lib/api');
+const { addSession, AGENT_SUPPORTING_CONTEXT } = require('./lib/api');
 const {
   getNamespace,
   getProjectIdentity,
@@ -8,13 +8,11 @@ const { loadProjectConfig } = require('./lib/project-config');
 const { loadSettings, getAuthToken, getBaseUrl, debugLog } = require('./lib/settings');
 const { settleAuth } = require('./lib/auth');
 const { readStdin, writeOutput } = require('./lib/stdin');
-const {
-  formatNewEntries,
-  setLastCapturedSequence,
-  resolveTranscriptPath,
-} = require('./lib/transcript');
+const { readRawDelta, resolveTranscriptPath } = require('./lib/transcript');
 const { getUserFriendlyError } = require('./lib/error-helpers');
 const { saveLastSession } = require('./lib/last-session');
+
+const CAPTURE_TIMEOUT_MS = 25000;
 
 async function main() {
   const settings = loadSettings();
@@ -39,7 +37,7 @@ async function main() {
       return;
     }
 
-    const delta = formatNewEntries(transcriptPath, sessionId);
+    const delta = readRawDelta(transcriptPath, sessionId);
     if (!delta) {
       debugLog(settings, 'No new content to save');
       writeOutput({ continue: true });
@@ -49,10 +47,10 @@ async function main() {
     const baseUrl = getBaseUrl(cwd, projectConfig);
     const namespace = getNamespace(cwd);
 
-    const result = await addMemory(
+    const result = await addSession(
       baseUrl,
       apiKey,
-      delta.formatted,
+      delta.raw,
       namespace,
       {
         type: 'session_turn',
@@ -62,12 +60,16 @@ async function main() {
         sm_capture_mode: 'automatic',
         timestamp: new Date().toISOString(),
       },
-      { id: sessionId, supportingContext: AGENT_SUPPORTING_CONTEXT },
+      {
+        id: sessionId,
+        generation: delta.generation,
+        offset: delta.offset,
+        supportingContext: AGENT_SUPPORTING_CONTEXT,
+        timeoutMs: CAPTURE_TIMEOUT_MS,
+      },
     );
 
-    if (delta.lastSequence != null) {
-      setLastCapturedSequence(sessionId, delta.lastSequence);
-    }
+    delta.commit();
 
     if (result?.id) {
       try {
@@ -75,7 +77,11 @@ async function main() {
       } catch {}
     }
 
-    debugLog(settings, 'Session turn saved', { length: delta.formatted.length });
+    debugLog(settings, 'Session sent', {
+      bytes: delta.raw.length,
+      generation: delta.generation,
+      offset: delta.offset,
+    });
     writeOutput({ continue: true });
   } catch (err) {
     const friendly = getUserFriendlyError(err);
