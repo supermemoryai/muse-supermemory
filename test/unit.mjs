@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { createServer } from 'node:http';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -9,75 +10,144 @@ import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const {
-  formatNewEntries,
-  setLastCapturedSequence,
-} = require(join(root, 'hooks/lib/transcript.js'));
+const { readRawDelta } = require(join(root, 'hooks/lib/transcript.js'));
 
-describe('transcript', () => {
-  test('extracts user prompts and assistant messages from Muse session.jsonl', (t) => {
-    const dir = mkdtempSync(join(tmpdir(), 'muse-sm-'));
-    t.after(() => rmSync(dir, { recursive: true, force: true }));
-    const log = join(dir, 'session.jsonl');
-    const records = [
-      {
-        sequence: 1,
-        payload_type: 'runtime.session',
-        payload: {
-          kind: 'run',
-          event: { kind: 'started', prompt: 'use bun not npm' },
-        },
-      },
-      {
-        sequence: 2,
-        payload_type: 'runtime.session',
-        payload: {
-          kind: 'event',
-          event: {
-            kind: 'assistant_message_committed',
-            text: 'Switching the install path to bun.',
-          },
-        },
-      },
-      {
-        sequence: 3,
-        payload_type: 'runtime.session',
-        payload: {
-          kind: 'event',
-          event: { kind: 'assistant_tool_calls_committed', tool_calls: [] },
-        },
-      },
-    ];
-    writeFileSync(log, records.map((r) => JSON.stringify(r)).join('\n'));
-    const delta = formatNewEntries(log, 'sess-1');
-    assert.match(delta.formatted, /use bun not npm/);
-    assert.match(delta.formatted, /Switching the install path to bun/);
-    assert.equal(delta.lastSequence, 3);
+const line = (sequence, payload) =>
+  `${JSON.stringify({ sequence, payload_type: 'runtime.session', payload })}\n`;
+const prompt = (sequence, text) =>
+  line(sequence, { kind: 'run', event: { kind: 'started', prompt: text } });
+const reply = (sequence, text) =>
+  line(sequence, {
+    kind: 'event',
+    event: { kind: 'assistant_message_committed', text },
   });
 
-  test('skips already captured sequences', (t) => {
-    const dir = mkdtempSync(join(tmpdir(), 'muse-sm-'));
-    t.after(() => rmSync(dir, { recursive: true, force: true }));
-    process.env.SUPERMEMORY_MUSE_HOME = join(dir, 'home');
-    mkdirSync(process.env.SUPERMEMORY_MUSE_HOME, { recursive: true });
-    const log = join(dir, 'session.jsonl');
-    writeFileSync(
-      log,
-      [
-        JSON.stringify({
-          sequence: 1,
-          payload: { kind: 'run', event: { kind: 'started', prompt: 'old' } },
-        }),
-        JSON.stringify({
-          sequence: 2,
-          payload: { kind: 'run', event: { kind: 'started', prompt: 'new' } },
-        }),
-      ].join('\n'),
-    );
-    setLastCapturedSequence('sess-2', 1);
-    const delta = formatNewEntries(log, 'sess-2');
-    assert.match(delta.formatted, /new/);
-    assert.doesNotMatch(delta.formatted, /old/);
+function tempSession(t) {
+  const dir = mkdtempSync(join(tmpdir(), 'muse-sm-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  process.env.SUPERMEMORY_MUSE_HOME = join(dir, 'home');
+  return { dir, log: join(dir, 'session.jsonl') };
+}
+
+function runHook(script, input, env) {
+  return new Promise((resolve, reject) => {
+    const child = spawn('node', [join(root, script)], {
+      env: { ...process.env, ...env },
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    child.on('error', reject);
+    child.on('close', (status) => resolve({ status, stdout, stderr }));
+    child.stdin.end(JSON.stringify(input));
+  });
+}
+
+describe('transcript', () => {
+  test('sends complete new lines and resends until committed', (t) => {
+    const { log } = tempSession(t);
+    const first = prompt(1, 'use bun not npm') + reply(2, 'Switching to bun.');
+    writeFileSync(log, `${first}{"sequence":3,"payl`);
+
+    const delta = readRawDelta(log, 'sess-1');
+    assert.equal(delta.raw, first);
+    assert.equal(delta.offset, 0);
+    assert.equal(delta.generation, 0);
+    assert.equal(readRawDelta(log, 'sess-1').raw, first);
+
+    delta.commit();
+    assert.equal(readRawDelta(log, 'sess-1'), null);
+
+    const next = prompt(3, 'now add a lockfile');
+    writeFileSync(log, first + next);
+    const second = readRawDelta(log, 'sess-1');
+    assert.equal(second.raw, next);
+    assert.equal(second.offset, Buffer.byteLength(first));
+    assert.equal(second.generation, 0);
+  });
+
+  test('starts a new generation when the transcript is rewritten', (t) => {
+    const { log } = tempSession(t);
+    writeFileSync(log, prompt(1, 'old prompt') + reply(2, 'old reply'));
+    readRawDelta(log, 'sess-2').commit();
+
+    const rewritten = prompt(1, 'new prompt') + reply(2, 'new reply') + prompt(3, 'more');
+    writeFileSync(log, rewritten);
+    const delta = readRawDelta(log, 'sess-2');
+    assert.equal(delta.raw, rewritten);
+    assert.equal(delta.offset, 0);
+    assert.equal(delta.generation, 1);
+    delta.commit();
+
+    const truncated = prompt(1, 'short');
+    writeFileSync(log, truncated);
+    const after = readRawDelta(log, 'sess-2');
+    assert.equal(after.raw, truncated);
+    assert.equal(after.offset, 0);
+    assert.equal(after.generation, 2);
+  });
+});
+
+describe('capture', () => {
+  test('advances the cursor only after the server accepts the delta', async (t) => {
+    const { dir, log } = tempSession(t);
+    mkdirSync(join(dir, '.muse'));
+    writeFileSync(join(dir, '.muse', 'supermemory.json'),
+      JSON.stringify({ namespace: 'repo_test' }));
+
+    const requests = [];
+    const statuses = [500, 200, 200];
+    const server = createServer((req, res) => {
+      let body = '';
+      req.on('data', (chunk) => { body += chunk; });
+      req.on('end', () => {
+        requests.push({ url: req.url, headers: req.headers, body: JSON.parse(body) });
+        const status = statuses[requests.length - 1];
+        res.writeHead(status, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(status === 200 ? { id: 'sess-3', status: 'queued' } : { error: 'boom' }));
+      });
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    t.after(() => server.close());
+
+    const env = {
+      SUPERMEMORY_MUSE_HOME: process.env.SUPERMEMORY_MUSE_HOME,
+      SUPERMEMORY_MUSE_API_KEY: 'sm_test_key',
+      SUPERMEMORY_API_URL: `http://127.0.0.1:${server.address().port}`,
+    };
+    const input = { session_id: 'sess-3', transcript_path: log, cwd: dir };
+    const first = prompt(1, 'use bun not npm') + reply(2, 'Switching to bun.');
+    writeFileSync(log, first);
+
+    assert.equal((await runHook('hooks/capture.js', input, env)).status, 0);
+    assert.equal(requests.length, 1);
+    assert.equal(readRawDelta(log, 'sess-3').raw, first);
+
+    assert.equal((await runHook('hooks/capture.js', input, env)).status, 0);
+    assert.equal(requests.length, 2);
+    assert.equal(requests[0].body.content, first);
+
+    const [, accepted] = requests;
+    assert.equal(accepted.url, '/ns/repo_test/document');
+    assert.equal(accepted.headers['x-sm-session'], 'muse-code');
+    assert.equal(accepted.headers['x-sm-source'], 'muse-code');
+    assert.equal(accepted.headers.authorization, 'Bearer sm_test_key');
+    assert.equal(accepted.body.id, 'sess-3');
+    assert.equal(accepted.body.content, first);
+    assert.equal(accepted.body.metadata.sm_source, 'muse-code');
+    assert.equal(accepted.body.metadata.sm_session_generation, 0);
+    assert.equal(accepted.body.metadata.sm_session_offset, 0);
+    assert.equal(accepted.body.taskType, 'memory');
+    assert.equal(accepted.body.dreaming, 'dynamic');
+
+    const next = prompt(3, 'now add a lockfile');
+    writeFileSync(log, first + next);
+    assert.equal((await runHook('hooks/capture.js', input, env)).status, 0);
+    assert.equal(requests.length, 3);
+    assert.equal(requests[2].body.content, next);
+    assert.equal(requests[2].body.metadata.sm_session_offset, Buffer.byteLength(first));
+    assert.equal(readRawDelta(log, 'sess-3'), null);
   });
 });
 
@@ -215,13 +285,13 @@ describe('namespace configuration', () => {
 });
 
 describe('v5 API', () => {
-  const { getProfile, searchMemories, addMemory } = require(join(root, 'hooks/lib/api.js'));
+  const { getProfile, searchMemories, addSession } = require(join(root, 'hooks/lib/api.js'));
 
   test('uses namespace routes and v5 request bodies', async (t) => {
     const calls = [];
     const originalFetch = global.fetch;
     global.fetch = async (url, options) => {
-      calls.push({ url, body: JSON.parse(options.body) });
+      calls.push({ url, headers: options.headers, body: JSON.parse(options.body) });
       const result = calls.length === 1
         ? { profile: { static: [], dynamic: [], buckets: {} } }
         : calls.length === 2
@@ -233,8 +303,9 @@ describe('v5 API', () => {
 
     await getProfile('https://api.supermemory.ai', 'key', 'repo:alpha');
     await searchMemories('https://api.supermemory.ai', 'key', 'repo:alpha', 'build decision');
-    await addMemory('https://api.supermemory.ai', 'key', 'session text', 'repo:alpha',
-      { type: 'session_turn' }, { id: 'session-1', supportingContext: 'agent context' });
+    await addSession('https://api.supermemory.ai', 'key', '{"sequence":1}\n', 'repo:alpha',
+      { type: 'session_turn' },
+      { id: 'session-1', generation: 2, offset: 40, supportingContext: 'agent context' });
 
     assert.deepEqual(calls.map(({ url }) => url), [
       'https://api.supermemory.ai/ns/repo%3Aalpha/profile',
@@ -244,7 +315,16 @@ describe('v5 API', () => {
     assert.deepEqual(calls[0].body, {});
     assert.equal(calls[1].body.query, 'build decision');
     assert.equal(calls[1].body.searchMode, 'memories');
+    assert.equal(calls[1].headers['x-sm-session'], undefined);
+    assert.equal(calls[2].headers['x-sm-session'], 'muse-code');
     assert.equal(calls[2].body.id, 'session-1');
+    assert.equal(calls[2].body.content, '{"sequence":1}\n');
+    assert.deepEqual(calls[2].body.metadata, {
+      sm_source: 'muse-code',
+      type: 'session_turn',
+      sm_session_generation: 2,
+      sm_session_offset: 40,
+    });
     assert.equal(calls[2].body.supportingContext, 'agent context');
     assert.equal(calls[2].body.taskType, 'memory');
     assert.equal(calls[2].body.dreaming, 'dynamic');
@@ -258,7 +338,7 @@ describe('v5 API', () => {
     global.fetch = async () => ({ ok: true, json: async () => ({ id: 'doc_1', status: 'failed' }) });
     t.after(() => { global.fetch = originalFetch; });
     await assert.rejects(
-      addMemory('https://api.supermemory.ai', 'key', 'session text', 'repo_alpha', {}),
+      addSession('https://api.supermemory.ai', 'key', '{"sequence":1}\n', 'repo_alpha', {}),
       /did not confirm document acceptance/,
     );
   });

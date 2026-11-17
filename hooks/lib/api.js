@@ -18,13 +18,14 @@ SKIP:
 const REQUEST_TIMEOUT_MS = 3000;
 const SOURCE = 'muse-code';
 
-async function post(baseUrl, apiKey, path, body, timeoutMs = REQUEST_TIMEOUT_MS) {
+async function post(baseUrl, apiKey, path, body, timeoutMs = REQUEST_TIMEOUT_MS, headers = {}) {
   const response = await fetch(`${baseUrl.replace(/\/+$/, '')}${path}`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
       'x-sm-source': SOURCE,
+      ...headers,
     },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(timeoutMs),
@@ -69,16 +70,28 @@ async function searchMemories(baseUrl, apiKey, namespace, query, options = {}) {
   return result;
 }
 
-async function addMemory(baseUrl, apiKey, content, namespace, metadata, options = {}) {
+async function addSession(baseUrl, apiKey, raw, namespace, metadata, options = {}) {
   const body = {
-    content,
-    metadata: { sm_source: SOURCE, ...metadata },
+    content: raw,
+    metadata: {
+      sm_source: SOURCE,
+      ...metadata,
+      sm_session_generation: options.generation,
+      sm_session_offset: options.offset,
+    },
     taskType: 'memory',
     dreaming: 'dynamic',
   };
   if (options.id) body.id = options.id;
   if (options.supportingContext) body.supportingContext = options.supportingContext;
-  const result = await post(baseUrl, apiKey, namespacePath(namespace, 'document'), body, options.timeoutMs);
+  const result = await post(
+    baseUrl,
+    apiKey,
+    namespacePath(namespace, 'document'),
+    body,
+    options.timeoutMs,
+    { 'x-sm-session': SOURCE },
+  );
   const accepted = ['unknown', 'queued', 'extracting', 'chunking', 'embedding', 'indexing', 'done'];
   if (typeof result?.id !== 'string' || !result.id.trim() || !accepted.includes(result.status)) {
     throw new Error('Supermemory did not confirm document acceptance');
@@ -86,4 +99,4 @@ async function addMemory(baseUrl, apiKey, content, namespace, metadata, options 
   return result;
 }
 
-module.exports = { AGENT_SUPPORTING_CONTEXT, getProfile, searchMemories, addMemory };
+module.exports = { AGENT_SUPPORTING_CONTEXT, getProfile, searchMemories, addSession };
