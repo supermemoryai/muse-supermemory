@@ -10,6 +10,8 @@ const DEFAULT_SETTINGS = {
   debug: false,
   injectProfile: true,
   recallDirective: null,
+  captureSubagents: false,
+  captureHeadless: false,
 };
 
 function loadSettings() {

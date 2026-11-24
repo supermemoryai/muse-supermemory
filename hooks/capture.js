@@ -15,12 +15,19 @@ const {
 } = require('./lib/transcript');
 const { getUserFriendlyError } = require('./lib/error-helpers');
 const { saveLastSession } = require('./lib/last-session');
+const { skipReason } = require('./lib/session-scope');
 
 async function main() {
   const settings = loadSettings();
 
   try {
     const input = await readStdin();
+    const skip = skipReason(settings);
+    if (skip) {
+      debugLog(settings, 'Capture skipped', { reason: skip });
+      writeOutput({ continue: true });
+      return;
+    }
     const cwd = input.cwd || process.cwd();
     const sessionId = input.session_id;
     const transcriptPath = resolveTranscriptPath(input);

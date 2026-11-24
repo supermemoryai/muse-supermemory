@@ -15,6 +15,7 @@ const {
 } = require('./lib/settings');
 const { atomicWriteJson, getSessionDir, readJson } = require('./lib/session-state');
 const { readStdin, writeOutput } = require('./lib/stdin');
+const { skipReason } = require('./lib/session-scope');
 
 const MIN_PROMPT_LENGTH = 12;
 const MAX_QUERY_LENGTH = 500;
@@ -97,6 +98,12 @@ async function main() {
 
   try {
     const input = await readStdin();
+    const skip = skipReason(settings);
+    if (skip) {
+      debugLog(settings, 'Recall skipped', { reason: skip });
+      writeOutput({ continue: true, suppressOutput: true });
+      return;
+    }
     const cwd = input.cwd || process.cwd();
     const prompt = (input.prompt || '').trim();
     const { directive } = getRecallConfig(cwd);

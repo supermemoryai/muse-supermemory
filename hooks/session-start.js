@@ -19,6 +19,7 @@ const {
 } = require('./lib/auth');
 const { getUserFriendlyError } = require('./lib/error-helpers');
 const { lastSessionFile } = require('./lib/last-session');
+const { skipReason } = require('./lib/session-scope');
 const fs = require('node:fs');
 
 function welcomeBackNotice(containerTag) {
@@ -76,6 +77,12 @@ async function main() {
 
   try {
     const input = await readStdin();
+    const skip = skipReason(settings);
+    if (skip) {
+      debugLog(settings, 'SessionStart skipped', { reason: skip });
+      writeOutput({ continue: true, suppressOutput: true });
+      return;
+    }
     const cwd = input.cwd || process.cwd();
     const projectConfig = loadProjectConfig(cwd);
     const projectName = getProjectName(cwd);
